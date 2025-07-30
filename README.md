@@ -88,7 +88,7 @@ You're working for a transportation tech company supporting city-wide taxi fleet
 
 ---
 
-### 💵 Short Cash Ride (Not Suspicious)
+### Short Cash Ride (Not Suspicious)
 ```json
 {
   "ContentData": {
