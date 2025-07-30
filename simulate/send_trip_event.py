@@ -15,10 +15,10 @@ producer = EventHubProducerClient.from_connection_string(
 event_data_batch = producer.create_batch()
 trip_data = {
     "ContentData": {
-        "vendorID": "V123",
-        "tripDistance": 0.5,
-        "passengerCount": 5,
-        "paymentType": "2"
+        "vendorID": "V999",
+        "tripDistance": 3.0,
+        "passengerCount": 2,
+        "paymentType": "1"
     }
 }
 event_data_batch.add(EventData(json.dumps(trip_data)))

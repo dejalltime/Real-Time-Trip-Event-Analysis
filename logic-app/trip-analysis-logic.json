@@ -1,0 +1,227 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_events_are_available_in_Event_Hub": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['eventhubs']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/@{encodeURIComponent('taxi-trips')}/events/batch/head",
+                    "queries": {
+                        "contentType": "application/octet-stream",
+                        "consumerGroupName": "$Default",
+                        "maximumEventsCount": 50
+                    }
+                },
+                "recurrence": {
+                    "interval": 5,
+                    "frequency": "Second"
+                },
+                "splitOn": "@triggerBody()"
+            }
+        },
+        "actions": {
+            "trip-analyzer-fn-analyze_trip": {
+                "type": "Function",
+                "inputs": {
+                    "body": "@body('Parse_JSON')\n",
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "function": {
+                        "id": "/subscriptions/b3d019b0-c6fd-4f25-ac45-54f25745f266/resourceGroups/tripanalyzerfn/providers/Microsoft.Web/sites/trip-analyzer-fn/functions/analyze_trip"
+                    }
+                },
+                "runAfter": {
+                    "Parse_JSON": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "For_each": {
+                "type": "Foreach",
+                "foreach": "@body('trip-analyzer-fn-analyze_trip')",
+                "actions": {
+                    "isItInteresting": {
+                        "type": "If",
+                        "expression": {
+                            "and": [
+                                {
+                                    "equals": [
+                                        "@item()?['isInteresting']",
+                                        true
+                                    ]
+                                }
+                            ]
+                        },
+                        "actions": {
+                            "IsSuspicious": {
+                                "type": "If",
+                                "expression": {
+                                    "and": [
+                                        {
+                                            "contains": [
+                                                "@item()?['insights']\n",
+                                                "SuspiciousVendorActivity"
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "actions": {
+                                    "Suspicious_Vendor_Activity": {
+                                        "type": "ApiConnectionWebhook",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "name": "@parameters('$connections')['teams']['connectionId']"
+                                                }
+                                            },
+                                            "body": {
+                                                "notificationUrl": "@listCallbackUrl()",
+                                                "body": {
+                                                    "messageBody": "  {\n  \"type\": \"AdaptiveCard\",\n  \"body\": [\n    {\n      \"type\": \"TextBlock\",\n      \"text\": \"⚠️ Suspicious Vendor Activity Detected\",\n      \"weight\": \"Bolder\",\n      \"size\": \"Large\",\n      \"color\": \"Attention\"\n    },\n    {\n      \"type\": \"FactSet\",\n      \"facts\": [\n        { \"title\": \"Vendor\", \"value\": \"@{items('For_each')?['vendorID']}\" },\n        { \"title\": \"Distance (mi)\", \"value\": \"@{items('For_each')?['tripDistance']}\" },\n        { \"title\": \"Passengers\", \"value\": \"@{items('For_each')?['passengerCount']}\" },\n        { \"title\": \"Payment\", \"value\": \"@{items('For_each')?['paymentType']}\" },\n        { \"title\": \"Insights\", \"value\": \"@{join(items('For_each')?['insights'], ', ')}\" }\n      ]\n    }\n  ],\n  \"actions\": [],\n  \"version\": \"1.2\"\n}",
+                                                    "updateMessage": "Thanks for your response!",
+                                                    "recipient": {
+                                                        "groupId": "0ef2c66f-c985-4936-8788-e85a101645ae",
+                                                        "channelId": "19:3JH1yH4rgmj5QPPmyKyv1l4Rm4HsWSZuKKlkC4989LQ1@thread.tacv2"
+                                                    }
+                                                }
+                                            },
+                                            "path": "/v1.0/teams/conversation/gatherinput/poster/Flow bot/location/@{encodeURIComponent('Channel')}/$subscriptions"
+                                        }
+                                    }
+                                },
+                                "else": {
+                                    "actions": {
+                                        "Interesting_Trip_Card": {
+                                            "type": "ApiConnectionWebhook",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['teams']['connectionId']"
+                                                    }
+                                                },
+                                                "body": {
+                                                    "notificationUrl": "@listCallbackUrl()",
+                                                    "body": {
+                                                        "messageBody": "  {\n  \"type\": \"AdaptiveCard\",\n  \"body\": [\n    {\n      \"type\": \"TextBlock\",\n      \"text\": \"🚨 Interesting Trip Detected\",\n      \"weight\": \"Bolder\",\n      \"size\": \"Large\",\n      \"color\": \"Attention\"\n    },\n    {\n      \"type\": \"FactSet\",\n      \"facts\": [\n        { \"title\": \"Vendor\", \"value\": \"@{items('For_each')?['vendorID']}\" },\n        { \"title\": \"Distance (mi)\", \"value\": \"@{items('For_each')?['tripDistance']}\" },\n        { \"title\": \"Passengers\", \"value\": \"@{items('For_each')?['passengerCount']}\" },\n        { \"title\": \"Payment\", \"value\": \"@{items('For_each')?['paymentType']}\" },\n        { \"title\": \"Insights\", \"value\": \"@{join(items('For_each')?['insights'], ', ')}\" }\n      ]\n    }\n  ],\n  \"actions\": [],\n  \"version\": \"1.2\"\n}",
+                                                        "updateMessage": "Thanks for your response!",
+                                                        "recipient": {
+                                                            "groupId": "0ef2c66f-c985-4936-8788-e85a101645ae",
+                                                            "channelId": "19:3JH1yH4rgmj5QPPmyKyv1l4Rm4HsWSZuKKlkC4989LQ1@thread.tacv2"
+                                                        }
+                                                    }
+                                                },
+                                                "path": "/v1.0/teams/conversation/gatherinput/poster/Flow bot/location/@{encodeURIComponent('Channel')}/$subscriptions"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "else": {
+                            "actions": {
+                                "Post_adaptive_card_and_wait_for_a_response": {
+                                    "type": "ApiConnectionWebhook",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['teams']['connectionId']"
+                                            }
+                                        },
+                                        "body": {
+                                            "notificationUrl": "@listCallbackUrl()",
+                                            "body": {
+                                                "messageBody": "  {\n  \"type\": \"AdaptiveCard\",\n  \"body\": [\n    {\n      \"type\": \"TextBlock\",\n      \"text\": \"✅ Trip Analyzed - No Issues\",\n      \"weight\": \"Bolder\",\n      \"size\": \"Large\",\n      \"color\": \"Good\"\n    },\n    {\n      \"type\": \"FactSet\",\n      \"facts\": [\n        { \"title\": \"Vendor\", \"value\": \"@{items('For_each')?['vendorID']}\" },\n        { \"title\": \"Distance (mi)\", \"value\": \"@{items('For_each')?['tripDistance']}\" },\n        { \"title\": \"Passengers\", \"value\": \"@{items('For_each')?['passengerCount']}\" },\n        { \"title\": \"Payment\", \"value\": \"@{items('For_each')?['paymentType']}\" },\n        { \"title\": \"Summary\", \"value\": \"@{items('For_each')?['summary']}\" }\n      ]\n    }\n  ],\n  \"actions\": [],\n  \"version\": \"1.2\"\n}",
+                                                "updateMessage": "Thanks for your response!",
+                                                "recipient": {
+                                                    "groupId": "0ef2c66f-c985-4936-8788-e85a101645ae",
+                                                    "channelId": "19:3JH1yH4rgmj5QPPmyKyv1l4Rm4HsWSZuKKlkC4989LQ1@thread.tacv2"
+                                                }
+                                            }
+                                        },
+                                        "path": "/v1.0/teams/conversation/gatherinput/poster/Flow bot/location/@{encodeURIComponent('Channel')}/$subscriptions"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "trip-analyzer-fn-analyze_trip": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Parse_JSON": {
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@base64ToString(triggerBody()?['ContentData'])",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "ContentData": {
+                                "type": "object",
+                                "properties": {
+                                    "vendorID": {
+                                        "type": "string"
+                                    },
+                                    "tripDistance": {
+                                        "type": "number"
+                                    },
+                                    "passengerCount": {
+                                        "type": "integer"
+                                    },
+                                    "paymentType": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "vendorID",
+                                    "tripDistance",
+                                    "passengerCount",
+                                    "paymentType"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "ContentData"
+                        ]
+                    }
+                },
+                "runAfter": {}
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "eventhubs": {
+                    "id": "/subscriptions/b3d019b0-c6fd-4f25-ac45-54f25745f266/providers/Microsoft.Web/locations/canadacentral/managedApis/eventhubs",
+                    "connectionId": "/subscriptions/b3d019b0-c6fd-4f25-ac45-54f25745f266/resourceGroups/trip-monitoring-rg/providers/Microsoft.Web/connections/eventhubs",
+                    "connectionName": "eventhubs"
+                },
+                "teams": {
+                    "id": "/subscriptions/b3d019b0-c6fd-4f25-ac45-54f25745f266/providers/Microsoft.Web/locations/canadacentral/managedApis/teams",
+                    "connectionId": "/subscriptions/b3d019b0-c6fd-4f25-ac45-54f25745f266/resourceGroups/trip-monitoring-rg/providers/Microsoft.Web/connections/teams",
+                    "connectionName": "teams"
+                }
+            }
+        }
+    }
+}
